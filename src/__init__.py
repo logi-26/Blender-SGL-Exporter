@@ -32,7 +32,7 @@ class MDLExporter(bpy.types.Operator):
         self.export_mdl(mesh_objects, dir_path, base_name)
         CFileWriter(dir_path, base_name).write_c_file()
 
-        if self.model_has_textures(mesh_objects):
+        if self._model_has_textures(mesh_objects):
             texture_writer = TextureFileWriter(dir_path, base_name)
             texture_writer.write_texture_data()
 
@@ -51,9 +51,9 @@ class MDLExporter(bpy.types.Operator):
             for obj in mesh_objects:
                 mdl_file.write("    -%s\n" % self._safe_name(obj.name))
             mdl_file.write("*/\n\n")
+            mdl_file.write('#include "sgl.h"\n')
 
             if self._model_has_textures(mesh_objects):
-                mdl_file.write('#include "sgl.h"\n')
                 mdl_file.write('#include "TEXTURES/%s_DEF.ini"\n' % base_name)
                 mdl_file.write("#define GRaddr 0xe000\n\n")
 
@@ -70,13 +70,6 @@ class MDLExporter(bpy.types.Operator):
                     if obj.data.uv_textures.active.data[poly.index].image:
                         return True
         return False
-
-    def _model_has_textures(self, mesh_objects):
-        for obj in mesh_objects:
-            if obj.data.uv_textures.active:
-                for poly in obj.data.polygons:
-                    if obj.data.uv_textures.active.data[poly.index].image:
-                        return True
 
     def _safe_name(self, name):
         return sub(r'[^A-Za-z0-9\s]', '', name)
@@ -274,7 +267,6 @@ class TextureFileWriter:
 
             for ob in bpy.data.objects:
                 if ob.type == "MESH" and ob.data.uv_textures.active is not None:
-                    self._apply_shading_from_mesh(ob)
                     sprite_uv = self._setup_uv_and_material(ob, mat, sprite_tex)
                     new_tex_table, new_pic_table, texture_id = self._bake_sprites(ob, sprite_uv, sprite_image, sprite_tex, file, texture_id)
                     tex_table.extend(new_tex_table)
@@ -288,6 +280,31 @@ class TextureFileWriter:
         self._write_texture_table(texture_dir, tex_table)
         self._write_picture_table(texture_dir, pic_table)
         self._write_picture_def(texture_dir)
+
+    def _write_texture_table(self, texture_dir, tex_table):
+        with self._initialize_texture_table_file(texture_dir) as texture_table_file:
+            texture_table_file.write("// Number of Textures:%9d\n" % len(tex_table))
+            if len(tex_table) > 0:
+                for t in tex_table:
+                    texture_table_file.write(t)
+            else:
+                texture_table_file.write("// No textures to define!")
+            texture_table_file.write("// Include this in a master texture table\n")
+
+    def _write_picture_table(self, texture_dir, pic_table):
+        with self._initialize_picture_table_file(texture_dir) as picture_table_file:
+            picture_table_file.write("// Number of Pictures:%9d\n" % len(pic_table))
+            if len(pic_table) > 0:
+                for p in pic_table:
+                    picture_table_file.write(p)
+            else:
+                picture_table_file.write("// No pictures to define!")
+            picture_table_file.write("// Include this in a master picture table\n")
+
+    def _write_picture_def(self, texture_dir):
+        tex_def = ''.join(self.base_name.split()).upper() + "_TEXNO"
+        with self._initialize_picture_def_file(texture_dir) as picture_def_file:
+            picture_def_file.write("#define %s 0" % tex_def)
 
     def _create_texture_directory(self):
         texture_dir = join(self.dir_path, "TEXTURES")
@@ -315,51 +332,40 @@ class TextureFileWriter:
         mat = bpy.data.materials.new("_tmp")
         sprite_image = bpy.data.images.new("_tmp", 64, 64)
         sprite_tex = bpy.data.textures.new("_tmp", type="IMAGE")
-        sprite_tex.image = sprite_image
         return mat, sprite_image, sprite_tex
 
-    def _apply_shading_from_mesh(self, ob):
-        # Check the shading type of the mesh faces
-        smooth_faces = sum(1 for poly in ob.data.polygons if poly.use_smooth)
-        total_faces = len(ob.data.polygons)
-
-        if smooth_faces == total_faces:
-            bpy.ops.object.shade_smooth()
-        elif smooth_faces == 0:
-            bpy.ops.object.shade_flat()
-        else:
-            # Default to smooth shading if there's a mix of shading types
-            bpy.ops.object.shade_smooth()
-
     def _setup_uv_and_material(self, ob, mat, sprite_tex):
-        bpy.ops.object.select_all(action="DESELECT")
-        ob.select = True
+        # Ensure the correct context
         bpy.context.scene.objects.active = ob
+        ob.select = True
 
         sprite_uv = ob.data.uv_textures.new(name="_tmp")
+
         for tf in ob.data.uv_textures[sprite_uv.name].data:
             tf.image = None
 
         ob.data.uv_textures[sprite_uv.name].active = True
         bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.select_all(action='SELECT')
         bpy.ops.uv.reset()
-        bpy.ops.mesh.select_all(action="DESELECT")
+        bpy.ops.mesh.select_all(action='DESELECT')
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        if ob.data.materials:
+        if len(ob.data.materials) > 0:
             ob.data.materials[0] = mat
         else:
             ob.data.materials.append(mat)
 
         mat.diffuse_color = (1, 1, 1)
         mat.diffuse_intensity = 1.0
+        mat.use_shadeless = True
 
-        tex_slot = mat.texture_slots.add()
-        tex_slot.texture = sprite_tex
-        tex_slot.texture_coords = 'UV'
-        tex_slot.uv_layer = ob.data.uv_textures[0].name
-        tex_slot.use_map_color_diffuse = True
+        # Ensure the texture slot is initialized
+        if mat.texture_slots[0] is None:
+            mat.texture_slots.add()
+        mat.texture_slots[0].texture = sprite_tex
+        mat.texture_slots[0].texture_coords = 'UV'
+        mat.texture_slots[0].uv_layer = ob.data.uv_textures[0].name
 
         sprite_tex.filter_type = "BOX"
         sprite_tex.filter_size = 0.1
@@ -372,42 +378,41 @@ class TextureFileWriter:
         tex_table = []
         pic_table = []
 
-        if self._has_lights():
-            mat.use_shadeless = False
-            bpy.context.scene.render.bake_type = "COMBINED"  # Set to "COMBINED" for lit baking
-        else:
-            mat.use_shadeless = True
-            bpy.context.scene.render.bake_type = "TEXTURE"  # Set to "TEXTURE" for unlit baking
+        # Set up the bake type
+        bpy.context.scene.render.bake_type = 'TEXTURE'
 
-        for i in range(len(ob.data.uv_textures[0].data)):
-            if ob.data.uv_textures[0].data[i].image is not None:
+        for i, uv_face in enumerate(ob.data.uv_textures[0].data):
+            if uv_face.image is not None:
                 ob.data.uv_textures[sprite_uv.name].data[i].image = sprite_image
-                sprite_tex.image = ob.data.uv_textures[0].data[i].image
+                sprite_tex.image = uv_face.image
+
+                # Perform the bake
                 bpy.ops.object.bake_image()
 
                 file.write("TEXDAT %s_tex%d[] = {\n" % (ob.name, texture_id))
 
-                pixels = sprite_image.pixels[:]
+                pixels = list(sprite_image.pixels)
                 for x in range(0, len(pixels), 4):
                     r = int(pixels[x] * 31)
                     g = int(pixels[x + 1] * 31)
                     b = int(pixels[x + 2] * 31)
                     color = (b << 10) | (g << 5) | (r) | 0x8000
 
-                    if x * 0.25 % 8 == 0:
-                        file.write("   %s," % (hex(color)))
-                    elif x * 0.25 % 8 == 7:
-                        file.write("%s,\n" % (hex(color)))
+                    if (x // 4) % 8 == 0:
+                        file.write("   %s," % hex(color))
+                    elif (x // 4) % 8 == 7:
+                        file.write("%s,\n" % hex(color))
                     else:
-                        file.write("%s," % (hex(color)))
+                        file.write("%s," % hex(color))
 
                 tex_table.append("   TEXDEF(%3d, %3d, CGADDRESS+%9d),\n" % (
-                    sprite_image.generated_width,
-                    sprite_image.generated_height,
-                    ((sprite_image.generated_width * sprite_image.generated_height) * 2) * texture_id
+                    sprite_image.size[0],
+                    sprite_image.size[1],
+                    ((sprite_image.size[0] * sprite_image.size[1]) * 2) * texture_id
                 ))
 
-                pic_table.append("   PICDEF(texdef+%3d, COL_32K, %s_tex%d),\n" % (
+                pic_table.append("   PICDEF(%s+%3d, COL_32K, %s_tex%d),\n" % (
+                    "texdef",
                     texture_id,
                     ob.name,
                     texture_id,
@@ -423,37 +428,10 @@ class TextureFileWriter:
     def _cleanup(self, mat, sprite_tex, sprite_image):
         mat.texture_slots.clear(0)
         sprite_tex.image = None
+        sprite_image.user_clear()
         bpy.data.materials.remove(mat, do_unlink=True)
         bpy.data.images.remove(sprite_image)
         bpy.data.textures.remove(sprite_tex)
-
-    def _write_texture_table(self, texture_dir, tex_table):
-        with self._initialize_texture_table_file(texture_dir) as texture_table_file:
-            texture_table_file.write("// Number of Textures:%9d\n" % len(tex_table))
-            if tex_table:
-                for t in tex_table:
-                    texture_table_file.write(t)
-            else:
-                texture_table_file.write("// No textures to define!")
-            texture_table_file.write("// Include this in a master texture table\n")
-
-    def _write_picture_table(self, texture_dir, pic_table):
-        with self._initialize_picture_table_file(texture_dir) as picture_table_file:
-            picture_table_file.write("// Number of Pictures:%9d\n" % len(pic_table))
-            if pic_table:
-                for p in pic_table:
-                    picture_table_file.write(p)
-            else:
-                picture_table_file.write("// No pictures to define!")
-            picture_table_file.write("// Include this in a master picture table\n")
-
-    def _write_picture_def(self, texture_dir):
-        tex_def = str().join(self.base_name.split()).upper() + "_TEXNO"
-        with self._initialize_picture_def_file(texture_dir) as picture_def_file:
-            picture_def_file.write("#define %s 0" % tex_def)
-
-    def _has_lights(self):
-        return any(obj.type == 'LAMP' for obj in bpy.data.objects)
 
 
 def menu_func_export(self, context):
