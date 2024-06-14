@@ -228,7 +228,7 @@ class CFileWriter:
             c_file.write("void %s_Draw(FIXED *light)\n" % c_name.capitalize())
             self._write_transformations(c_file, c_name)
             c_file.write("       // Code to draw the object's polygons\n")
-            c_file.write("       slPutPolygonX(&XPD_%s, light);\n" % obj.name)
+            c_file.write("       slPutPolygonX(&XPD_%s, light);\n" % self._safe_name(obj.name))
             c_file.write("   }\n")
             c_file.write("   slPopMatrix();\n")
             c_file.write("}\n\n")
@@ -265,10 +265,10 @@ class TextureFileWriter:
 
             mat, sprite_image, sprite_tex = self._setup_material_and_texture()
 
-            for ob in bpy.data.objects:
-                if ob.type == "MESH" and ob.data.uv_textures.active is not None:
-                    sprite_uv = self._setup_uv_and_material(ob, mat, sprite_tex)
-                    new_tex_table, new_pic_table, texture_id = self._bake_sprites(ob, sprite_uv, sprite_image, sprite_tex, file, texture_id)
+            for obj in bpy.data.objects:
+                if obj.type == "MESH" and obj.data.uv_textures.active is not None:
+                    sprite_uv = self._setup_uv_and_material(obj, mat, sprite_tex)
+                    new_tex_table, new_pic_table, texture_id = self._bake_sprites(obj, sprite_uv, sprite_image, sprite_tex, file, texture_id)
                     tex_table.extend(new_tex_table)
                     pic_table.extend(new_pic_table)
 
@@ -280,6 +280,9 @@ class TextureFileWriter:
         self._write_texture_table(texture_dir, tex_table)
         self._write_picture_table(texture_dir, pic_table)
         self._write_picture_def(texture_dir)
+
+    def _safe_name(self, name):
+        return sub(r'[^A-Za-z0-9\s]', '', name)
 
     def _write_texture_table(self, texture_dir, tex_table):
         with self._initialize_texture_table_file(texture_dir) as texture_table_file:
@@ -334,27 +337,27 @@ class TextureFileWriter:
         sprite_tex = bpy.data.textures.new("_tmp", type="IMAGE")
         return mat, sprite_image, sprite_tex
 
-    def _setup_uv_and_material(self, ob, mat, sprite_tex):
+    def _setup_uv_and_material(self, obj, mat, sprite_tex):
         # Ensure the correct context
-        bpy.context.scene.objects.active = ob
-        ob.select = True
+        bpy.context.scene.objects.active = obj
+        obj.select = True
 
-        sprite_uv = ob.data.uv_textures.new(name="_tmp")
+        sprite_uv = obj.data.uv_textures.new(name="_tmp")
 
-        for tf in ob.data.uv_textures[sprite_uv.name].data:
+        for tf in obj.data.uv_textures[sprite_uv.name].data:
             tf.image = None
 
-        ob.data.uv_textures[sprite_uv.name].active = True
+        obj.data.uv_textures[sprite_uv.name].active = True
         bpy.ops.object.mode_set(mode='EDIT')
         bpy.ops.mesh.select_all(action='SELECT')
         bpy.ops.uv.reset()
         bpy.ops.mesh.select_all(action='DESELECT')
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        if len(ob.data.materials) > 0:
-            ob.data.materials[0] = mat
+        if len(obj.data.materials) > 0:
+            obj.data.materials[0] = mat
         else:
-            ob.data.materials.append(mat)
+            obj.data.materials.append(mat)
 
         mat.diffuse_color = (1, 1, 1)
         mat.diffuse_intensity = 1.0
@@ -365,7 +368,7 @@ class TextureFileWriter:
             mat.texture_slots.add()
         mat.texture_slots[0].texture = sprite_tex
         mat.texture_slots[0].texture_coords = 'UV'
-        mat.texture_slots[0].uv_layer = ob.data.uv_textures[0].name
+        mat.texture_slots[0].uv_layer = obj.data.uv_textures[0].name
 
         sprite_tex.filter_type = "BOX"
         sprite_tex.filter_size = 0.1
@@ -374,22 +377,22 @@ class TextureFileWriter:
 
         return sprite_uv
 
-    def _bake_sprites(self, ob, sprite_uv, sprite_image, sprite_tex, file, texture_id):
+    def _bake_sprites(self, obj, sprite_uv, sprite_image, sprite_tex, file, texture_id):
         tex_table = []
         pic_table = []
 
         # Set up the bake type
         bpy.context.scene.render.bake_type = 'TEXTURE'
 
-        for i, uv_face in enumerate(ob.data.uv_textures[0].data):
+        for i, uv_face in enumerate(obj.data.uv_textures[0].data):
             if uv_face.image is not None:
-                ob.data.uv_textures[sprite_uv.name].data[i].image = sprite_image
+                obj.data.uv_textures[sprite_uv.name].data[i].image = sprite_image
                 sprite_tex.image = uv_face.image
 
                 # Perform the bake
                 bpy.ops.object.bake_image()
 
-                file.write("TEXDAT %s_tex%d[] = {\n" % (ob.name, texture_id))
+                file.write("TEXDAT %s_tex%d[] = {\n" % (self._safe_name(obj.name), texture_id))
 
                 pixels = list(sprite_image.pixels)
                 for x in range(0, len(pixels), 4):
@@ -414,14 +417,14 @@ class TextureFileWriter:
                 pic_table.append("   PICDEF(%s+%3d, COL_32K, %s_tex%d),\n" % (
                     "texdef",
                     texture_id,
-                    ob.name,
+                    obj.name,
                     texture_id,
                 ))
 
                 texture_id += 1
                 file.write("};\n\n")
 
-                ob.data.uv_textures[sprite_uv.name].data[i].image = None
+                obj.data.uv_textures[sprite_uv.name].data[i].image = None
 
         return tex_table, pic_table, texture_id
 
