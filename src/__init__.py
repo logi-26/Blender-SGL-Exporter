@@ -87,7 +87,7 @@ class MDLExporter(Operator, BaseExporter):
         vertices = obj.data.vertices
         mdl_file.write("POINT point_%s[%d] = {\n" % (self._safe_name(obj.name), len(vertices)))
         for vert in vertices:
-            x, y, z = vert.co
+            x, y, z = vert.co * 15
             mdl_file.write("   POStoFIXED(%9.6f, %9.6f, %9.6f),\n" % (x, y, z))
         mdl_file.write("};\n\n")
 
