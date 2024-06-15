@@ -12,9 +12,15 @@ from os import mkdir
 from os.path import join, exists, basename, dirname, splitext
 from re import sub
 import bpy
+from bpy.types import Operator
 
 
-class MDLExporter(bpy.types.Operator):
+class BaseExporter:
+    def _safe_name(self, name):
+        return sub(r'[^A-Za-z0-9\s]', '', name)
+
+
+class MDLExporter(Operator, BaseExporter):
     bl_idname = "export_scene.mdl"
     bl_label = "Export MDL file for SGL"
     filepath = bpy.props.StringProperty(subtype='FILE_PATH')
@@ -70,9 +76,6 @@ class MDLExporter(bpy.types.Operator):
                     if obj.data.uv_textures.active.data[poly.index].image:
                         return True
         return False
-
-    def _safe_name(self, name):
-        return sub(r'[^A-Za-z0-9\s]', '', name)
 
     def _write_object_data(self, mdl_file, obj):
         self._write_vertices(mdl_file, obj)
@@ -149,7 +152,7 @@ class MDLExporter(bpy.types.Operator):
         mdl_file.write("};\n\n")
 
 
-class CFileWriter:
+class CFileWriter(BaseExporter):
     def __init__(self, dir_path, base_name):
         self.dir_path = dir_path
         self.base_name = base_name
@@ -161,9 +164,6 @@ class CFileWriter:
             self._write_model_properties(c_file)
             self._write_model_draw_functions(c_file)
             self._write_main_draw_function(c_file)
-            
-    def _safe_name(self, name):
-        return sub(r'[^A-Za-z0-9\s]', '', name)
 
     def _write_includes(self, c_file):
         c_file.write("#include \"%s.mdl\"\n\n" % self.base_name)
@@ -251,14 +251,14 @@ class CFileWriter:
             c_file.write("}\n\n")
 
 
-class TextureFileWriter:
+class TextureFileWriter(BaseExporter):
     def __init__(self, dir_path, base_name):
         self.dir_path = dir_path
         self.base_name = base_name
 
     def write_texture_data(self):
         texture_dir = self._create_texture_directory()
-        with self._initialize_texture_file(texture_dir) as file:
+        with self._initialize_texture_file(texture_dir) as txr_file:
             texture_id = 0
             tex_table = []
             pic_table = []
@@ -268,7 +268,7 @@ class TextureFileWriter:
             for obj in bpy.data.objects:
                 if obj.type == "MESH" and obj.data.uv_textures.active is not None:
                     sprite_uv = self._setup_uv_and_material(obj, mat, sprite_tex)
-                    new_tex_table, new_pic_table, texture_id = self._bake_sprites(obj, sprite_uv, sprite_image, sprite_tex, file, texture_id)
+                    new_tex_table, new_pic_table, texture_id = self._bake_sprites(obj, sprite_uv, sprite_image, sprite_tex, txr_file, texture_id)
                     tex_table.extend(new_tex_table)
                     pic_table.extend(new_pic_table)
 
@@ -280,9 +280,6 @@ class TextureFileWriter:
         self._write_texture_table(texture_dir, tex_table)
         self._write_picture_table(texture_dir, pic_table)
         self._write_picture_def(texture_dir)
-
-    def _safe_name(self, name):
-        return sub(r'[^A-Za-z0-9\s]', '', name)
 
     def _write_texture_table(self, texture_dir, tex_table):
         with self._initialize_texture_table_file(texture_dir) as texture_table_file:
@@ -377,22 +374,22 @@ class TextureFileWriter:
 
         return sprite_uv
 
-    def _bake_sprites(self, obj, sprite_uv, sprite_image, sprite_tex, file, texture_id):
+    def _bake_sprites(self, obj, sprite_uv, sprite_image, sprite_tex, txr_file, texture_id):
         tex_table = []
         pic_table = []
 
         # Set up the bake type
         bpy.context.scene.render.bake_type = 'TEXTURE'
 
-        for i, uv_face in enumerate(obj.data.uv_textures[0].data):
+        for count, uv_face in enumerate(obj.data.uv_textures[0].data):
             if uv_face.image is not None:
-                obj.data.uv_textures[sprite_uv.name].data[i].image = sprite_image
+                obj.data.uv_textures[sprite_uv.name].data[count].image = sprite_image
                 sprite_tex.image = uv_face.image
 
                 # Perform the bake
                 bpy.ops.object.bake_image()
 
-                file.write("TEXDAT %s_tex%d[] = {\n" % (self._safe_name(obj.name), texture_id))
+                txr_file.write("TEXDAT %s_tex%d[] = {\n" % (self._safe_name(obj.name), texture_id))
 
                 pixels = list(sprite_image.pixels)
                 for x in range(0, len(pixels), 4):
@@ -402,11 +399,11 @@ class TextureFileWriter:
                     color = (b << 10) | (g << 5) | (r) | 0x8000
 
                     if (x // 4) % 8 == 0:
-                        file.write("   %s," % hex(color))
+                        txr_file.write("   %s," % hex(color))
                     elif (x // 4) % 8 == 7:
-                        file.write("%s,\n" % hex(color))
+                        txr_file.write("%s,\n" % hex(color))
                     else:
-                        file.write("%s," % hex(color))
+                        txr_file.write("%s," % hex(color))
 
                 tex_table.append("   TEXDEF(%3d, %3d, CGADDRESS+%9d),\n" % (
                     sprite_image.size[0],
@@ -422,9 +419,9 @@ class TextureFileWriter:
                 ))
 
                 texture_id += 1
-                file.write("};\n\n")
+                txr_file.write("};\n\n")
 
-                obj.data.uv_textures[sprite_uv.name].data[i].image = None
+                obj.data.uv_textures[sprite_uv.name].data[count].image = None
 
         return tex_table, pic_table, texture_id
 
