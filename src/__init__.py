@@ -44,8 +44,7 @@ class MDLExporter(Operator, BaseExporter):
 
         # Generate the texture files
         if self._model_has_textures(mesh_objects):
-            texture_writer = TextureFileWriter(dir_path, base_name)
-            texture_writer.write_texture_data()
+            TextureFileWriter(dir_path, base_name).write_texture_data()
 
         return {'FINISHED'}
 
