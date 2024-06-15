@@ -180,13 +180,15 @@ class CFileWriter(BaseExporter):
         c_file.write("  %s_scl[X] = %s_scl[Y] = %s_scl[Z] = toFIXED(1.0);\n\n" % (c_name, c_name, c_name))
 
     def _write_model_properties(self, c_file):
-        for obj in bpy.data.objects:
-            if obj.parent is not None:
-                continue
+        mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+        if len(mesh_objects) > 1:
+            for obj in mesh_objects:
+                if obj.parent is not None:
+                    continue
 
-            c_name = self._safe_name(''.join(obj.name.split()).lower())
-            c_file.write("// %s model Properties\n" % c_name.capitalize())
-            self._write_model_property_declaration(c_file, c_name)
+                c_name = self._safe_name(''.join(obj.name.split()).lower())
+                c_file.write("// %s model Properties\n" % c_name.capitalize())
+                self._write_model_property_declaration(c_file, c_name)
 
         # Root Matrix Properties
         c_name = self._safe_name(''.join(self.base_name.split()).lower())
@@ -197,12 +199,13 @@ class CFileWriter(BaseExporter):
         # Combined initialise function
         c_file.write("void %s_Initialise() {\n" % c_name.capitalize())
 
-        for obj in bpy.data.objects:
-            if obj.parent is not None:
-                continue
+        if len(mesh_objects) > 1:
+            for obj in mesh_objects:
+                if obj.parent is not None:
+                    continue
 
-            c_name = self._safe_name(''.join(obj.name.split()).lower())
-            self._write_model_property_initialisation(c_file, c_name)
+                c_name = self._safe_name(''.join(obj.name.split()).lower())
+                self._write_model_property_initialisation(c_file, c_name)
 
         c_name = self._safe_name(''.join(self.base_name.split()).lower())
         self._write_model_property_initialisation(c_file, c_name)
@@ -220,31 +223,37 @@ class CFileWriter(BaseExporter):
         c_file.write("       slRotZ(%s_ang[Z]);\n\n" % c_name)
         
     def _write_model_draw_functions(self, c_file):
-        for obj in bpy.data.objects:
-            if obj.parent is not None:
-                continue
-            
-            c_name = self._safe_name(''.join(obj.name.split()).lower())
-            c_file.write("void %s_Draw(FIXED *light)\n" % c_name.capitalize())
-            self._write_transformations(c_file, c_name)
-            c_file.write("       // Code to draw the object's polygons\n")
-            c_file.write("       slPutPolygonX(&XPD_%s, light);\n" % self._safe_name(obj.name))
-            c_file.write("   }\n")
-            c_file.write("   slPopMatrix();\n")
-            c_file.write("}\n\n")
+        mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+        if len(mesh_objects) > 1:
+            for obj in mesh_objects:
+                if obj.parent is not None:
+                    continue
+                
+                c_name = self._safe_name(''.join(obj.name.split()).lower())
+                c_file.write("void %s_Draw(FIXED *light)\n" % c_name.capitalize())
+                self._write_transformations(c_file, c_name)
+                c_file.write("       // Code to draw the object's polygons\n")
+                c_file.write("       slPutPolygonX(&XPD_%s, light);\n" % self._safe_name(obj.name))
+                c_file.write("   }\n")
+                c_file.write("   slPopMatrix();\n")
+                c_file.write("}\n\n")
 
     def _write_main_draw_function(self, c_file):
         if self.base_name:
+            mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
             c_name = self._safe_name(''.join(self.base_name.split()).lower())
             c_file.write("void %s_Draw(FIXED *light)\n" % c_name.capitalize())
             self._write_transformations(c_file, c_name)
             
             # Add the draw function calls for each model
-            for obj in bpy.data.objects:
-                if obj.parent is not None:
-                    continue
-                obj_c_name = self._safe_name(''.join(obj.name.split()).lower())
-                c_file.write("       %s_Draw(light);\n" % obj_c_name.capitalize())
+            if len(mesh_objects) > 1:
+                for obj in mesh_objects:
+                    if obj.parent is not None:
+                        continue
+                    obj_c_name = self._safe_name(''.join(obj.name.split()).lower())
+                    c_file.write("       %s_Draw(light);\n" % obj_c_name.capitalize())
+            else:
+                c_file.write("       slPutPolygonX(&XPD_%s, light);\n" % self._safe_name(c_name.capitalize()))
 
             c_file.write("   }\n")
             c_file.write("   slPopMatrix();\n")
