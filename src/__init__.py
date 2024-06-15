@@ -122,6 +122,7 @@ class MDLExporter(Operator, BaseExporter):
     def _write_attributes(self, mdl_file, obj, base_name):
         polygons = obj.data.polygons
         tex_def = ''.join(base_name.split()).upper() + "_TEXNO"
+
         mdl_file.write("ATTR attribute_%s[%d] = {\n" % (self._safe_name(obj.name), len(polygons)))
         for poly in polygons:
             r = g = b = 31
@@ -302,23 +303,21 @@ class TextureFileWriter(BaseExporter):
 
     def _write_texture_table(self, texture_dir, tex_table):
         with self._initialize_texture_table_file(texture_dir) as texture_table_file:
-            texture_table_file.write("// Number of Textures:%9d\n" % len(tex_table))
+            texture_table_file.write("// Number of Textures: %d  (include this data in a master texture table) \n\n" % len(tex_table))
             if len(tex_table) > 0:
-                for t in tex_table:
-                    texture_table_file.write(t)
+                for texture in tex_table:
+                    texture_table_file.write(texture)
             else:
                 texture_table_file.write("// No textures to define!")
-            texture_table_file.write("// Include this in a master texture table\n")
 
     def _write_picture_table(self, texture_dir, pic_table):
         with self._initialize_picture_table_file(texture_dir) as picture_table_file:
-            picture_table_file.write("// Number of Pictures:%9d\n" % len(pic_table))
+            picture_table_file.write("// Number of Pictures: %d  (include this data in a master picture table) \n\n" % len(pic_table))
             if len(pic_table) > 0:
-                for p in pic_table:
-                    picture_table_file.write(p)
+                for pictue in pic_table:
+                    picture_table_file.write(pictue)
             else:
                 picture_table_file.write("// No pictures to define!")
-            picture_table_file.write("// Include this in a master picture table\n")
 
     def _write_picture_def(self, texture_dir):
         tex_def = ''.join(self.base_name.split()).upper() + "_TEXNO"
@@ -340,11 +339,11 @@ class TextureFileWriter(BaseExporter):
         return open(texture_table_path, 'w')
 
     def _initialize_picture_table_file(self, texture_dir):
-        picture_table_path = join(texture_dir, self.base_name + "._PIC.tbl")
+        picture_table_path = join(texture_dir, self.base_name + "_PIC.tbl")
         return open(picture_table_path, 'w')
 
     def _initialize_picture_def_file(self, texture_dir):
-        picture_def_path = join(texture_dir, self.base_name + "._DEF.ini")
+        picture_def_path = join(texture_dir, self.base_name + "_DEF.ini")
         return open(picture_def_path, 'w')
 
     def _setup_material_and_texture(self):
@@ -425,16 +424,16 @@ class TextureFileWriter(BaseExporter):
                     else:
                         txr_file.write("%s," % hex(color))
 
-                tex_table.append("   TEXDEF(%3d, %3d, CGADDRESS+%9d),\n" % (
+                tex_table.append("TEXDEF(%3d, %3d, CGADDRESS+%9d),\n" % (
                     sprite_image.size[0],
                     sprite_image.size[1],
                     ((sprite_image.size[0] * sprite_image.size[1]) * 2) * texture_id
                 ))
 
-                pic_table.append("   PICDEF(%s+%3d, COL_32K, %s_tex%d),\n" % (
+                pic_table.append("PICDEF(%s+%3d, COL_32K, %s_tex%d),\n" % (
                     "texdef",
                     texture_id,
-                    obj.name,
+                    self._safe_name(obj.name),
                     texture_id,
                 ))
 
