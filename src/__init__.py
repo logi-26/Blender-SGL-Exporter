@@ -24,6 +24,7 @@ class MDLExporter(Operator, BaseExporter):
     bl_idname = "export_scene.mdl"
     bl_label = "Export MDL file for SGL"
     filepath = bpy.props.StringProperty(subtype='FILE_PATH')
+    texture_id = 0
 
     def execute(self, context):
         mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
@@ -35,9 +36,13 @@ class MDLExporter(Operator, BaseExporter):
         dir_path = dirname(self.filepath)
         base_name = splitext(basename(self.filepath))[0]
 
+        # Generate the MDL file
         self.export_mdl(mesh_objects, dir_path, base_name)
+        
+        # Generate the C file
         CFileWriter(dir_path, base_name).write_c_file()
 
+        # Generate the texture files
         if self._model_has_textures(mesh_objects):
             texture_writer = TextureFileWriter(dir_path, base_name)
             texture_writer.write_texture_data()
@@ -49,6 +54,7 @@ class MDLExporter(Operator, BaseExporter):
         return {'RUNNING_MODAL'}
 
     def export_mdl(self, mesh_objects, dir_path, base_name):
+        # Create the MDL file
         mdl_path = join(dir_path, base_name + ".mdl")
         with open(mdl_path, 'w') as mdl_file:
             mdl_file.write("/* Model Name: %s */\n" % base_name)
@@ -59,13 +65,17 @@ class MDLExporter(Operator, BaseExporter):
             mdl_file.write("*/\n\n")
             mdl_file.write('#include "sgl.h"\n')
 
+            # Add texture defs
             if self._model_has_textures(mesh_objects):
                 mdl_file.write('#include "TEXTURES/%s_DEF.ini"\n' % base_name)
                 mdl_file.write("#define GRaddr 0xe000\n\n")
+            else:
+                mdl_file.write("\n")
 
+            # Write the data for each model
             for obj in mesh_objects:
                 try:
-                    self._write_object_data(mdl_file, obj)
+                    self._write_object_data(mdl_file, obj, base_name)
                 except Exception as e:
                     print("Error processing {%s}" % e)
 
@@ -77,11 +87,11 @@ class MDLExporter(Operator, BaseExporter):
                         return True
         return False
 
-    def _write_object_data(self, mdl_file, obj):
+    def _write_object_data(self, mdl_file, obj, base_name):
         self._write_vertices(mdl_file, obj)
-        self._write_faces_normals(mdl_file, obj)
-        self._write_attributes(mdl_file, obj)
-        self._write_polygon_data(mdl_file, obj)
+        self._write_polygons(mdl_file, obj)
+        self._write_attributes(mdl_file, obj, base_name)
+        self._write_xpdata(mdl_file, obj)
 
     def _write_vertices(self, mdl_file, obj):
         vertices = obj.data.vertices
@@ -91,7 +101,7 @@ class MDLExporter(Operator, BaseExporter):
             mdl_file.write("   POStoFIXED(%9.6f, %9.6f, %9.6f),\n" % (x, y, z))
         mdl_file.write("};\n\n")
 
-    def _write_faces_normals(self, mdl_file, obj):
+    def _write_polygons(self, mdl_file, obj):
         polygons = obj.data.polygons
         mdl_file.write("POLYGON polygon_%s[%d] = {\n" % (self._safe_name(obj.name), len(polygons)))
         for poly in polygons:
@@ -110,11 +120,9 @@ class MDLExporter(Operator, BaseExporter):
                 poly.select = True
         mdl_file.write("};\n\n")
 
-    def _write_attributes(self, mdl_file, obj):
+    def _write_attributes(self, mdl_file, obj, base_name):
         polygons = obj.data.polygons
-        #tex_def = str().join(base_name.split()).upper() + "_TEXNO"
-        tex_def = "123"
-        texture_id = 0
+        tex_def = ''.join(base_name.split()).upper() + "_TEXNO"
         mdl_file.write("ATTR attribute_%s[%d] = {\n" % (self._safe_name(obj.name), len(polygons)))
         for poly in polygons:
             r = g = b = 31
@@ -124,24 +132,27 @@ class MDLExporter(Operator, BaseExporter):
                     r = int(vcol.data[l].color.r * 31)
                     g = int(vcol.data[l].color.g * 31)
                     b = int(vcol.data[l].color.b * 31)
+                    
+            c_rgb_colour = "C_RGB(%d, %d, %d)" % (r, g, b)
 
+            # If the polygon has a texture
             if obj.data.uv_textures.active and obj.data.uv_textures.active.data[poly.index].image:
-                texno = tex_def + "+" + str(texture_id)
-                spr = "sprNoflip"
-                texture_id += 1
-                colno = "CL32KRGB|MESHoff|CL_Gouraud"  
+                texture = "%s+%s" % (tex_def, self.texture_id)      # Texture number of the texture to be used
+                spr = "sprNoflip"                                   # Display texture normally
+                mode = "CL32KRGB|MESHoff|CL_Gouraud"  
+                self.texture_id += 1
             else:
-                texno = "No_Texture"
-                spr = "sprPolygon"
-                colno = "MESHoff|CL_Gouraud"
+                texture = "No_Texture"                              # No texture used
+                spr = "sprPolygon"                                  # Display polygon
+                mode = "MESHoff|CL_Gouraud"
 
-            mdl_file.write("   ATTRIBUTE(Single_Plane, SORT_CEN, %s, C_RGB(%d, %d, %d), No_Gouraud, %s, %s, No_Option),\n" % (
-                texno, r, g, b, colno, spr
+            mdl_file.write("   ATTRIBUTE(Single_Plane, SORT_CEN, %s, %s, No_Gouraud, %s, %s, No_Option),\n" % (
+                texture, c_rgb_colour, mode, spr
             ))
 
         mdl_file.write("};\n\n")
 
-    def _write_polygon_data(self, mdl_file, obj):
+    def _write_xpdata(self, mdl_file, obj):
         obj_name = self._safe_name(obj.name)
         mdl_file.write("VECTOR vector_%s[sizeof(point_%s) / sizeof(POINT)];\n\n" % (obj_name, obj_name))
         mdl_file.write("XPDATA XPD_%s[6] = {\n" % obj_name)
@@ -339,7 +350,7 @@ class TextureFileWriter(BaseExporter):
 
     def _setup_material_and_texture(self):
         mat = bpy.data.materials.new("_tmp")
-        sprite_image = bpy.data.images.new("_tmp", 64, 64)
+        sprite_image = bpy.data.images.new("_tmp", 32, 32)
         sprite_tex = bpy.data.textures.new("_tmp", type="IMAGE")
         return mat, sprite_image, sprite_tex
 
@@ -354,6 +365,7 @@ class TextureFileWriter(BaseExporter):
             tf.image = None
 
         obj.data.uv_textures[sprite_uv.name].active = True
+
         bpy.ops.object.mode_set(mode='EDIT')
         bpy.ops.mesh.select_all(action='SELECT')
         bpy.ops.uv.reset()
