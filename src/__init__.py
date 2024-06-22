@@ -190,8 +190,9 @@ class CFileWriter(BaseExporter):
 
     def _write_model_property_initialisation(self, c_file, c_name):
         c_file.write("  // Initialise %s properties\n" % c_name)
-        c_file.write("  %s_pos[X] = %s_pos[Y] = %s_pos[Z] = toFIXED(0.0);\n" % (c_name, c_name, c_name))
         c_file.write("  %s_ang[X] = %s_ang[Y] = %s_ang[Z] = DEGtoANG(0.0);\n" % (c_name, c_name, c_name))
+        c_file.write("  %s_pos[X] = %s_pos[Y] = toFIXED(0.0);\n" % (c_name, c_name))
+        c_file.write("  %s_pos[Z] = toFIXED(120.0);\n" % c_name)
         c_file.write("  %s_scl[X] = %s_scl[Y] = %s_scl[Z] = toFIXED(1.0);\n\n" % (c_name, c_name, c_name))
 
     def _write_model_properties(self, c_file):
