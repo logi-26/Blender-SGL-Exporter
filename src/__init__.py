@@ -323,6 +323,9 @@ class TextureFileWriter(BaseExporter):
             
             # Write the picture-table
             self._write_picture_table(txr_file, pic_table)
+
+            # Write the set-texture function
+            self._write_set_texture_function(txr_file)
    
     def _write_colour_palette(self, txr_file, colour_palette):
         if len(colour_palette) > 0:
@@ -355,6 +358,18 @@ class TextureFileWriter(BaseExporter):
             for picture in pic_table:
                 txr_file.write(picture)
             txr_file.write("};\n\n")
+
+    def _write_set_texture_function(self, txr_file):
+        txr_file.write("void Set_Texture(PICTURE *pcptr , Uint32 NbPicture)\n")
+        txr_file.write("{\n")
+        txr_file.write("    TEXTURE *txptr;\n\n")
+        txr_file.write("    for(; NbPicture-- > 0; pcptr++){\n")
+        txr_file.write("        txptr = tex_table + pcptr->texno;\n")
+        txr_file.write("        slDMACopy((void *)pcptr->pcsrc,\n")
+        txr_file.write("            (void *)(SpriteVRAM + ((txptr->CGadr) << 3)),\n")
+        txr_file.write("            (Uint32)((txptr->Hsize * txptr->Vsize * 4) >> (pcptr->cmode)));\n")
+        txr_file.write("    }\n")
+        txr_file.write("}\n\n")
 
     def _initialize_texture_file(self):
         texture_path = join(self.dir_path, self.base_name + "_texture.c")
