@@ -14,6 +14,7 @@ from re import sub
 import bpy
 from bpy.types import Operator
 
+GENERATE_LOG_FILE = True
 
 class BaseExporter:
     def _safe_name(self, name):
@@ -35,6 +36,9 @@ class MDLExporter(Operator, BaseExporter):
         self.filepath = bpy.path.ensure_ext(self.filepath, ".mdl")
         dir_path = dirname(self.filepath)
         base_name = splitext(basename(self.filepath))[0]
+
+        if GENERATE_LOG_FILE:
+            LogFileWriter(dir_path, base_name).write_log()
 
         # Generate the MDL file
         self.export_mdl(mesh_objects, dir_path, base_name)
@@ -483,6 +487,53 @@ class TextureFileWriter(BaseExporter):
         bpy.data.materials.remove(mat, do_unlink=True)
         bpy.data.images.remove(sprite_image)
         bpy.data.textures.remove(sprite_tex)
+
+
+class LogFileWriter:
+    def __init__(self, dir_path, base_name):
+        self.dir_path = dir_path
+        self.base_name = base_name
+
+    def write_log(self):
+        log_path = join(self.dir_path, "log.txt")
+        with open(log_path, 'w') as log_file:
+            mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+            log_file.write("Number of Mesh objects: %d\n" % len(mesh_objects))
+            for obj in mesh_objects:
+                log_file.write("\nObject name: %s\n" % obj.name)
+  
+                if obj.parent is None:
+                    log_file.write("Object has parent\n")
+                else:
+                    log_file.write("Object does not have parent\n")
+                
+                mesh = obj.data
+                log_file.write("Number of vertices: %d\n" % len(mesh.vertices))
+                log_file.write("Number of edges: %d\n" % len(mesh.edges))
+                log_file.write("Number of polygons: %d\n" % len(mesh.polygons))
+                log_file.write("Number of materials: %d\n" % len(obj.material_slots))
+
+                # Log material information
+                for mat_slot in obj.material_slots:
+                    if mat_slot.material:
+                        log_file.write("Material: %s\n" % mat_slot.material.name)
+                        log_file.write("Material diffuse color: %s\n" % str(mat_slot.material.diffuse_color))
+                    else:
+                        log_file.write("Material slot is empty\n")
+
+                if mesh.uv_textures.active:
+                    log_file.write("UV Textures are active\n")
+                    for uv_tex in mesh.uv_textures:
+                        log_file.write("UV Texture: %s\n" % uv_tex.name)
+                        
+                    for poly in mesh.polygons:
+                        uv_layer = mesh.uv_textures.active.data
+                        if uv_layer[poly.index].image:
+                            log_file.write("Polygon %d has texture: %s\n" % (poly.index, uv_layer[poly.index].image.name))
+                        else:
+                            log_file.write("Polygon %d has no texture\n" % poly.index)
+                else:
+                    log_file.write("No active UV Textures\n")
 
 
 def menu_func_export(self, context):
