@@ -13,10 +13,28 @@ from os.path import join, exists, basename, dirname, splitext
 from re import sub
 import bpy
 from bpy.types import Operator
+import logging
 
 GENERATE_LOG_FILE = True
 
+
 class BaseExporter:
+    logger = logging.getLogger(__name__)
+
+    def __init__(self):
+        # Set up logging
+        if self.logger.hasHandlers():
+            self.logger.handlers.clear()
+        self.logger.setLevel(logging.DEBUG)
+
+        # Add logging handler if it does not already exist
+        if not self.logger.hasHandlers():
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+
     def _safe_name(self, name):
         return sub(r'[^A-Za-z0-9\s]', '', name)
 
@@ -28,11 +46,12 @@ class MDLExporter(Operator, BaseExporter):
     texture_id = 0
 
     def execute(self, context):
+        self.logger.info("MDL Export Script Started...")
         mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
-        
+
         # Exit script if no mesh objects are found
         if not mesh_objects:
-            print("No objects to process")
+            self.logger.info("No objects to process!")
             return {'FINISHED'}
 
         self.filepath = bpy.path.ensure_ext(self.filepath, ".mdl")
@@ -42,16 +61,22 @@ class MDLExporter(Operator, BaseExporter):
         # Generate a log file containing info about the data
         if GENERATE_LOG_FILE:
             LogFileWriter(dir_path, base_name).write_log()
+            self.logger.info("Log file has been generated.")
 
         # Generate the MDL file
         self.export_mdl(mesh_objects, dir_path, base_name)
+        self.logger.info("MDL file has been generated.")
         
         # Generate the C file
         CFileWriter(dir_path, base_name).write_c_file()
+        self.logger.info("C file has been generated.")
 
         # Generate the texture files
         if self._model_has_textures(mesh_objects):
             TextureFileWriter(dir_path, base_name).write_texture_data()
+            self.logger.info("Texture file has been generated.")
+        else:
+            self.logger.info("Model has no textures!")
 
         return {'FINISHED'}
 
@@ -319,6 +344,7 @@ class TextureFileWriter(BaseExporter):
 
     def write_texture_data(self):
         # Write the texture data in a format supported by SGL
+        self.logger.info("Generating texture file...")
         with self._initialize_texture_file() as txr_file:
             colour_palette = set()
             texture_data = []
@@ -387,6 +413,7 @@ class TextureFileWriter(BaseExporter):
         return mat, sprite_image, sprite_tex
     
     def _cleanup(self, obj, mat, sprite_uv, sprite_image, sprite_tex):
+        self.logger.info("Clearing temp material/texture from object: %s..." % obj.name)
         # Ensure the object is active and selected
         bpy.context.scene.objects.active = obj
         obj.select = True
@@ -394,7 +421,7 @@ class TextureFileWriter(BaseExporter):
         # Clear the texture slot in the material
         if mat.texture_slots[0] is not None:
             mat.texture_slots.clear(0)
-        
+
         # Remove the temporary UV map
         uv_textures = obj.data.uv_textures
         for i, uv in enumerate(uv_textures):
@@ -412,11 +439,12 @@ class TextureFileWriter(BaseExporter):
         # Clear references to the texture and image
         sprite_tex.image = None
 
-        # Remove the temporary images and textures
+        # Remove the temporary image
         if sprite_image:
             sprite_image.user_clear()
             bpy.data.images.remove(sprite_image)
 
+        # Remove the temporary texture
         if sprite_tex:
             bpy.data.textures.remove(sprite_tex)
 
@@ -424,20 +452,25 @@ class TextureFileWriter(BaseExporter):
         if mat:
             bpy.data.materials.remove(mat, do_unlink=True)
 
+        self.logger.info("Temp material/texture has been removed from object: %s." % obj.name)
+
     def _setup_uv_and_material(self, obj, mat, sprite_tex):
-        # Ensure the correct context
-        bpy.context.scene.objects.active = obj  # Set the active object in the scene to the current object
-        obj.select = True  # Select the current object
+        self.logger.info("Setting up UV and materials for object: %s..." % obj.name)
+        
+        # Set the active object in the scene to the current object
+        bpy.context.scene.objects.active = obj
+        obj.select = True
 
         # Create a temporary UV texture layer for the object
         sprite_uv = obj.data.uv_textures.new(name="_tmp_%s" % obj.name)
 
         # Clear any existing images from the newly created UV texture
         for tf in obj.data.uv_textures[sprite_uv.name].data:
-            tf.image = None  # Remove the image from each UV face in the UV texture layer
+            tf.image = None
 
         # Set the newly created UV texture as the active UV map
         obj.data.uv_textures[sprite_uv.name].active = True
+        self.logger.info("Temporary UV map added to object: %s  UV map: %s." % (obj.name, sprite_uv.name))
 
         # Enter Edit mode to modify the UV map
         bpy.ops.object.mode_set(mode='EDIT')
@@ -448,6 +481,7 @@ class TextureFileWriter(BaseExporter):
 
         # Add the temporary material to the mesh object
         obj.data.materials.append(mat)
+        self.logger.info("Temporary material added to object: %s  material: %s." % (obj.name, mat.name))
 
         # Configure the material settings
         mat.diffuse_color = (1, 1, 1)                                   # Set the diffuse color to white
@@ -460,6 +494,8 @@ class TextureFileWriter(BaseExporter):
         mat.texture_slots[0].texture = sprite_tex                       # Assign the sprite texture to the first texture slot
         mat.texture_slots[0].texture_coords = 'UV'                      # Use UV coordinates for the texture
         mat.texture_slots[0].uv_layer = obj.data.uv_textures[0].name    # Set the UV layer for the texture
+        
+        self.logger.info("Temporary texture added to object: %s  texture: %s." % (obj.name, sprite_tex.name))
 
         # Configure the texture settings
         sprite_tex.filter_type = "BOX"                                  # Set the texture filter type to BOX
@@ -467,10 +503,13 @@ class TextureFileWriter(BaseExporter):
         sprite_tex.use_interpolation = False                            # Disable interpolation for the texture
         sprite_tex.use_mipmap = False                                   # Disable mipmapping for the texture
 
-        return sprite_uv  # Return the newly created UV texture layer
+        # Return the newly created UV texture layer
+        return sprite_uv
 
     def _bake_sprites(self, obj, sprite_uv, sprite_image, sprite_tex, obj_texture_number, texture_id, texture_presize, mat):
-        # Initialize lists to store texture information
+        self.logger.info("Baking textures for: %s" % obj.name)
+        
+        # Initialize lists to store texture and colour information
         tex_table = []
         pic_table = []
         texture_data = []
@@ -481,19 +520,19 @@ class TextureFileWriter(BaseExporter):
         
         # Set the current object as the active object
         bpy.context.scene.objects.active = obj
-        
-        # Assign the temporary material to the object for baking
-        obj.data.materials.append(mat)
 
         # Iterate over each UV face in the object's UV texture
         for count, uv_face in enumerate(obj.data.uv_textures[0].data):
             if uv_face.image is not None:
+                self.logger.info("Object face number %d has image." % count)
+                
                 # Assign the bake target image to the UV face
                 obj.data.uv_textures[sprite_uv.name].data[count].image = sprite_image
                 sprite_tex.image = uv_face.image
 
                 # Perform the bake operation
                 bpy.ops.object.bake_image()
+                self.logger.info("Texture has been baked for object: %s  face: %d" % (obj.name, count))
 
                 # Start writing the texture data
                 texture_data.append("TEXDAT %s_tex%d[] = {\n" % (self._safe_name(obj.name), texture_id))
