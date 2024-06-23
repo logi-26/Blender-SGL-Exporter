@@ -29,6 +29,8 @@ class MDLExporter(Operator, BaseExporter):
 
     def execute(self, context):
         mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+        
+        # Exit script if no mesh objects are found
         if not mesh_objects:
             print("No objects to process")
             return {'FINISHED'}
@@ -36,7 +38,8 @@ class MDLExporter(Operator, BaseExporter):
         self.filepath = bpy.path.ensure_ext(self.filepath, ".mdl")
         dir_path = dirname(self.filepath)
         base_name = splitext(basename(self.filepath))[0]
-        
+
+        # Generate a log file containing info about the data
         if GENERATE_LOG_FILE:
             LogFileWriter(dir_path, base_name).write_log()
 
@@ -53,6 +56,7 @@ class MDLExporter(Operator, BaseExporter):
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        # Open the file-dialog to set the export path
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
@@ -70,20 +74,20 @@ class MDLExporter(Operator, BaseExporter):
 
             # Add includes and texture defs
             if self._model_has_textures(mesh_objects):
-                #mdl_file.write("#define GRaddr 0xe000\n")
                 tex_def = ''.join(base_name.split()).upper() + "_TEXTURE_NUMBER"
                 mdl_file.write("#define %s 0\n\n" % tex_def)
             else:
                 mdl_file.write("\n")
 
-            # Write the data for each model
+            # Write the data for each mesh object in the heiracy
             for obj in mesh_objects:
                 try:
-                    self._write_object_data(mdl_file, obj, base_name)
+                    self._write_model_data(mdl_file, obj, base_name)
                 except Exception as e:
                     print("Error processing {%s}" % e)
 
     def _model_has_textures(self, mesh_objects):
+        # Check if a mesh object has a texture linked to the UV map
         for obj in mesh_objects:
             if obj.data.uv_textures.active:
                 for poly in obj.data.polygons:
@@ -91,13 +95,15 @@ class MDLExporter(Operator, BaseExporter):
                         return True
         return False
 
-    def _write_object_data(self, mdl_file, obj, base_name):
+    def _write_model_data(self, mdl_file, obj, base_name):
+        # Write all of the data for the mesh object
         self._write_vertices(mdl_file, obj)
         self._write_polygons(mdl_file, obj)
         self._write_attributes(mdl_file, obj, base_name)
         self._write_xpdata(mdl_file, obj)
 
     def _write_vertices(self, mdl_file, obj):
+        # Write all of the vertices for the mesh object in an SGL POINT array
         vertices = obj.data.vertices
         mdl_file.write("POINT point_%s[%d] = {\n" % (self._safe_name(obj.name), len(vertices)))
         for vert in vertices:
@@ -106,6 +112,7 @@ class MDLExporter(Operator, BaseExporter):
         mdl_file.write("};\n\n")
 
     def _write_polygons(self, mdl_file, obj):
+        # Write all of the faces for the mesh object in an SGL POLYGON array
         polygons = obj.data.polygons
         mdl_file.write("POLYGON polygon_%s[%d] = {\n" % (self._safe_name(obj.name), len(polygons)))
         for poly in polygons:
@@ -125,18 +132,27 @@ class MDLExporter(Operator, BaseExporter):
         mdl_file.write("};\n\n")
 
     def _write_attributes(self, mdl_file, obj, base_name):
+        # Create the SGL attribute table for the mesh object
         polygons = obj.data.polygons
         tex_def = ''.join(base_name.split()).upper() + "_TEXTURE_NUMBER"
+
         mdl_file.write("ATTR attribute_%s[%d] = {\n" % (self._safe_name(obj.name), len(polygons)))
         for poly in polygons:
+            # Initialize default color values
             r = g = b = 31
+            
+            # Get the active vertex color layer
             vcol = obj.data.vertex_colors.active
+            
+            # If vertex colors are available, process them
             if vcol:
                 for l in poly.loop_indices:
+                    # Convert vertex color components to integer values
                     r = int(vcol.data[l].color.r * 31)
                     g = int(vcol.data[l].color.g * 31)
                     b = int(vcol.data[l].color.b * 31)
-                    
+
+            # Construct the RGB color string
             c_rgb_colour = "C_RGB(%d, %d, %d)" % (r, g, b)
 
             # If the polygon has a texture
@@ -157,6 +173,7 @@ class MDLExporter(Operator, BaseExporter):
         mdl_file.write("};\n\n")
 
     def _write_xpdata(self, mdl_file, obj):
+        # Create the SGL XPDATA for the mesh object
         obj_name = self._safe_name(obj.name)
         mdl_file.write("VECTOR vector_%s[sizeof(point_%s) / sizeof(POINT)];\n\n" % (obj_name, obj_name))
         mdl_file.write("XPDATA XPD_%s[6] = {\n" % obj_name)
@@ -173,6 +190,7 @@ class CFileWriter(BaseExporter):
         self.base_name = base_name
 
     def write_c_file(self):
+        # Create the C file to initialise and draw the model using SGL
         c_path = join(self.dir_path, self.base_name + ".c")
         with open(c_path, 'w') as c_file:
             self._write_includes(c_file)
@@ -184,11 +202,13 @@ class CFileWriter(BaseExporter):
         c_file.write("#include \"%s.mdl\"\n\n" % self.base_name)
 
     def _write_model_property_declaration(self, c_file, c_name):
+        # Declare the properties for the mesh object
         c_file.write("FIXED %s_pos[XYZ];\n" % c_name)
         c_file.write("ANGLE %s_ang[XYZ];\n" % c_name)
         c_file.write("FIXED %s_scl[XYZ];\n\n" % c_name)
 
     def _write_model_property_initialisation(self, c_file, c_name):
+        # Initialise the properties for the mesh object
         c_file.write("  // Initialise %s properties\n" % c_name)
         c_file.write("  %s_ang[X] = %s_ang[Y] = %s_ang[Z] = DEGtoANG(0.0);\n" % (c_name, c_name, c_name))
         c_file.write("  %s_pos[X] = %s_pos[Y] = toFIXED(0.0);\n" % (c_name, c_name))
@@ -197,6 +217,8 @@ class CFileWriter(BaseExporter):
 
     def _write_model_properties(self, c_file):
         mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
+
+        # Write the properties for each model in the heiracy
         if len(mesh_objects) > 1:
             for obj in mesh_objects:
                 if obj.parent is None:
@@ -206,15 +228,16 @@ class CFileWriter(BaseExporter):
                 c_file.write("// %s model Properties\n" % c_name.capitalize())
                 self._write_model_property_declaration(c_file, c_name)
 
-        # Root Matrix Properties
+        # Write the properties for the root model
         c_name = self._safe_name(''.join(self.base_name.split()).lower())
 
         c_file.write("// ROOT MATRIX\n")
         self._write_model_property_declaration(c_file, c_name)
 
-        # Combined initialise function
+        # Write the model initialise function
         c_file.write("void %s_Initialise() {\n" % c_name.capitalize())
 
+        # Set the initial properties for each mesh object in the heiracy
         if len(mesh_objects) > 1:
             for obj in mesh_objects:
                 if obj.parent is None:
@@ -223,12 +246,14 @@ class CFileWriter(BaseExporter):
                 c_name = self._safe_name(''.join(obj.name.split()).lower())
                 self._write_model_property_initialisation(c_file, c_name)
 
+        # Set the initial properties for the root object
         c_name = self._safe_name(''.join(self.base_name.split()).lower())
         self._write_model_property_initialisation(c_file, c_name)
 
         c_file.write("}\n\n")
 
     def _write_transformations(self, c_file, c_name):
+        # Write the polygon transformations for the mesh object
         c_file.write("{\n")
         c_file.write("   slPushMatrix();\n")
         c_file.write("   {\n")
@@ -241,6 +266,8 @@ class CFileWriter(BaseExporter):
     def _write_model_draw_functions(self, c_file):
         mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
         if len(mesh_objects) > 1:
+            
+            # Write the draw function for each mesh object in the heiracy
             for obj in mesh_objects:
                 if obj.parent is None:
                     continue
@@ -259,18 +286,22 @@ class CFileWriter(BaseExporter):
         if self.base_name:
             c_name = self._safe_name(''.join(self.base_name.split()).lower())
             c_file.write("void %s_Draw(FIXED *light)\n" % c_name.capitalize())
+            
+            # Write the transformations for the root object
             self._write_transformations(c_file, c_name)
             
-            # Add the draw function calls for each model
+            # Put-polygon function for the root object
+            c_file.write("       slPutPolygonX(&XPD_%s, light);\n\n" % self._safe_name(c_name.capitalize()))
+            
+            # Add the draw function calls for each mesh object in the heiracy
             if len(mesh_objects) > 1:
                 for obj in mesh_objects:
                     if obj.parent is None:
                         continue
                     obj_c_name = self._safe_name(''.join(obj.name.split()).lower())
                     c_file.write("       %s_Draw(light);\n" % obj_c_name.capitalize())
-            else:
-                c_file.write("       slPutPolygonX(&XPD_%s, light);\n" % self._safe_name(c_name.capitalize()))
-
+            
+            # Pop the root object matrix
             c_file.write("   }\n")
             c_file.write("   slPopMatrix();\n")
             c_file.write("}\n\n")
@@ -282,26 +313,43 @@ class TextureFileWriter(BaseExporter):
         self.base_name = base_name
 
     def write_texture_data(self):
+        # Write the texture data in a format supported by SGL
         with self._initialize_texture_file() as txr_file:
             colour_palette = set()
             texture_data = []
             tex_table = []
             pic_table = []
             texture_presize = 0
+            texture_id = 0
 
+            # Loop through all of the mesh objects that have textures applied
             for obj in bpy.data.objects:
-                texture_id = 0
+                obj_texture_number = 0
                 if obj.type == "MESH" and obj.data.uv_textures.active is not None:
+                    
+                    # Store the original materials
+                    original_materials = list(obj.data.materials)
+                    
+                    # Setup temporary materials and textures
                     mat, sprite_image, sprite_tex = self._setup_material_and_texture()
 
                     # Bake textures for the current object
-                    new_tex_table, new_pic_table, new_colours, new_texture_data, texture_id, texture_presize = self._bake_sprites(obj, sprite_image, texture_id, texture_presize, mat)
+                    new_tex_table, new_pic_table, new_colours, new_texture_data, obj_texture_number, texture_id, texture_presize = self._bake_sprites(obj, sprite_image, obj_texture_number, texture_id, texture_presize, mat)
+                    
+                    # Add baked colours to the palette
                     colour_palette.update(new_colours)
+                    
+                    # Extend the texture data
                     texture_data.extend(new_texture_data)
+                    
+                    # Add the data to the texture table
                     tex_table.extend(new_tex_table)
+                    
+                    # Add the data to the picture table
                     pic_table.extend(new_pic_table)
 
-                    self._cleanup(mat, sprite_tex, sprite_image)
+                    # Cleanup the temporary materials
+                    self._cleanup(obj, mat, sprite_tex, sprite_image, original_materials)
 
             # Write the includes
             txr_file.write('#include "sgl.h"\n')
@@ -323,6 +371,7 @@ class TextureFileWriter(BaseExporter):
             self._write_set_texture_function(txr_file)
 
     def _write_colour_palette(self, txr_file, colour_palette):
+        # Create the colour palette that can be loaded into VRAM
         if len(colour_palette) > 0:
             txr_file.write("// Number of Colours: %d\n" % len(colour_palette))
             palette_str = ""
@@ -333,12 +382,14 @@ class TextureFileWriter(BaseExporter):
             txr_file.write("short int global_palette[] = {\n%s};\n\n" % palette_str)
 
     def _write_texture_data(self, txr_file, texture_data):
+        # Write the texture data for all objects
         if len(texture_data) > 0:
             txr_file.write("// Texture data\n")
             for tex_data in texture_data:
                 txr_file.write(tex_data)
 
     def _write_texture_table(self, txr_file, tex_table):
+        # Create the texture-table for SGL
         if len(tex_table) > 0:
             txr_file.write("// Number of Textures: %d\n" % len(tex_table))
             txr_file.write("TEXTURE tex_table[]={\n")
@@ -347,6 +398,7 @@ class TextureFileWriter(BaseExporter):
             txr_file.write("};\n\n")
 
     def _write_picture_table(self, txr_file, pic_table):
+        # Create the picture-table for SGL
         if len(pic_table) > 0:
             txr_file.write("// Number of Pictures: %d\n" % len(pic_table))
             txr_file.write("PICTURE pic_table[]={\n")
@@ -355,6 +407,7 @@ class TextureFileWriter(BaseExporter):
             txr_file.write("};\n\n")
 
     def _write_set_texture_function(self, txr_file):
+        # Create an SGL function to copy the texture data to VRAM
         txr_file.write("void Set_Texture(PICTURE *pcptr , Uint32 NbPicture)\n")
         txr_file.write("{\n")
         txr_file.write("    TEXTURE *txptr;\n\n")
@@ -371,13 +424,16 @@ class TextureFileWriter(BaseExporter):
         return open(texture_path, 'w')
 
     def _setup_material_and_texture(self):
+        # Setup temporary materials and textures
         mat = bpy.data.materials.new("_tmp")
         sprite_image = bpy.data.images.new("_tmp", 32, 32)
         sprite_tex = bpy.data.textures.new("_tmp", type="IMAGE")
-        sprite_tex.image = sprite_image  # Link the image to the texture
+        
+        # Link the image to the texture
+        sprite_tex.image = sprite_image
         return mat, sprite_image, sprite_tex
 
-    def _bake_sprites(self, obj, sprite_image, texture_id, texture_presize, mat):
+    def _bake_sprites(self, obj, sprite_image, obj_texture_number, texture_id, texture_presize, mat):
         color_palette = set()
         texture_data = []
         tex_table = []
@@ -405,8 +461,8 @@ class TextureFileWriter(BaseExporter):
             # Perform the bake operation
             self._perform_bake()
 
-            # Start writing the texture data
-            texture_data.append("TEXDAT %s_texture_%d[] = {\n" % (self._safe_name(obj.name), texture_id))
+            # Append the texture data
+            texture_data.append("TEXDAT %s_texture_%d[] = {\n" % (self._safe_name(obj.name), obj_texture_number))
 
             # Get the pixel data from the baked image
             pixels = list(sprite_image.pixels)
@@ -419,13 +475,13 @@ class TextureFileWriter(BaseExporter):
                 color = (b << 10) | (g << 5) | (r) | 0x8000  # Convert to RGB565 format
                 color_palette.add(color)
 
-                # Write the color value to the texture data array
+                # Append the color value to the texture data array
                 if (x // 4) % 8 == 0:
                     texture_data.append("   %s," % hex(color))
                 elif (x // 4) % 8 == 7:
                     texture_data.append("%s,\n" % hex(color))
 
-            # Check if the palette size exceeds 256 colors
+            # Ensure that the palette size does not exceeds 256 colors (this needs improvment)
             if len(color_palette) > 256:
                 color_palette = set(list(color_palette)[:256])
                 
@@ -443,41 +499,47 @@ class TextureFileWriter(BaseExporter):
             pic_table.append("   PICDEF(%3d, COL_32K, %s_texture_%d),\n" % (
                 texture_id,
                 self._safe_name(obj.name),
-                texture_id,
+                obj_texture_number,
             ))
-
+            
             # Increment the texture ID
             texture_id += 1
-            
+
+            # Increment the texture number
+            obj_texture_number += 1
+
             # Close the texture data array
             texture_data.append("};\n\n")
 
             # Clear the baked image from the UV face
             #obj.data.uv_textures[sprite_uv.name].data[count].image = None
 
-        return tex_table, pic_table, color_palette, texture_data, texture_id, texture_presize
+        return tex_table, pic_table, color_palette, texture_data, obj_texture_number, texture_id, texture_presize
 
     def _perform_bake(self):
         # Deselect all objects
         bpy.ops.object.select_all(action='DESELECT')
+        
         # Select the current object
         bpy.context.object.select = True
+        
         # Set object mode to 'OBJECT'
         bpy.ops.object.mode_set(mode='OBJECT')
+        
         # Perform the bake
         bpy.ops.object.bake_image()
 
-    def _safe_name(self, name):
-        return name.replace(" ", "_").replace("-", "_")
+    def _cleanup(self, obj, mat, sprite_tex, sprite_image, original_materials):
+        # Restore original materials
+        obj.data.materials.clear()
+        for orig_mat in original_materials:
+            obj.data.materials.append(orig_mat)
 
-    def _cleanup(self, mat, sprite_tex, sprite_image):
-        # Remove material, texture, and image data
-        mat.texture_slots.clear(0)
-        sprite_tex.image = None
-        sprite_image.user_clear()
-        bpy.data.materials.remove(mat, do_unlink=True)
-        bpy.data.images.remove(sprite_image)
-        bpy.data.textures.remove(sprite_tex)
+        if sprite_tex.name in bpy.data.textures:
+            bpy.data.textures.remove(bpy.data.textures[sprite_tex.name], do_unlink=True)
+            
+        if sprite_image.name in bpy.data.images:
+            bpy.data.images.remove(bpy.data.images[sprite_image.name], do_unlink=True)
 
 
 class LogFileWriter:
@@ -486,6 +548,7 @@ class LogFileWriter:
         self.base_name = base_name
 
     def write_log(self):
+        # Create a log file for debugging issues with the export script/data
         log_path = join(self.dir_path, "log.txt")
         with open(log_path, 'w') as log_file:
             mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
@@ -494,10 +557,11 @@ class LogFileWriter:
                 log_file.write("\nObject name: %s\n" % obj.name)
   
                 if obj.parent is None:
-                    log_file.write("Object has parent\n")
+                    log_file.write("Object does NOT have parent\n")
                 else:
-                    log_file.write("Object does not have parent\n")
-                
+                    log_file.write("Object has parent\n")
+                    
+                # Log mesh object information
                 mesh = obj.data
                 log_file.write("Number of vertices: %d\n" % len(mesh.vertices))
                 log_file.write("Number of edges: %d\n" % len(mesh.edges))
@@ -511,7 +575,8 @@ class LogFileWriter:
                         log_file.write("Material diffuse color: %s\n" % str(mat_slot.material.diffuse_color))
                     else:
                         log_file.write("Material slot is empty\n")
-
+                
+                # Log texture information
                 if mesh.uv_textures.active:
                     log_file.write("UV Textures are active\n")
                     for uv_tex in mesh.uv_textures:
@@ -525,7 +590,7 @@ class LogFileWriter:
                             log_file.write("Polygon %d has no texture\n" % poly.index)
                 else:
                     log_file.write("No active UV Textures\n")
- 
+
 
 def menu_func_export(self, context):
     self.layout.operator(MDLExporter.bl_idname, text=MDLExporter.bl_label)
