@@ -231,7 +231,7 @@ class CFileWriter(BaseExporter):
         # Write the properties for the root model
         c_name = self._safe_name(''.join(self.base_name.split()).lower())
 
-        c_file.write("// ROOT MATRIX\n")
+        c_file.write("// %s model Properties (root model)\n" % c_name.capitalize())
         self._write_model_property_declaration(c_file, c_name)
 
         # Write the model initialise function
@@ -275,7 +275,7 @@ class CFileWriter(BaseExporter):
                 c_name = self._safe_name(''.join(obj.name.split()).lower())
                 c_file.write("void %s_Draw(FIXED *light)\n" % c_name.capitalize())
                 self._write_transformations(c_file, c_name)
-                c_file.write("       // Code to draw the object's polygons\n")
+                c_file.write("       // Draw the object's polygons\n")
                 c_file.write("       slPutPolygonX(&XPD_%s, light);\n" % self._safe_name(obj.name))
                 c_file.write("   }\n")
                 c_file.write("   slPopMatrix();\n")
@@ -291,10 +291,12 @@ class CFileWriter(BaseExporter):
             self._write_transformations(c_file, c_name)
             
             # Put-polygon function for the root object
+            c_file.write("       // Draw the root polygon\n")
             c_file.write("       slPutPolygonX(&XPD_%s, light);\n\n" % self._safe_name(c_name.capitalize()))
             
             # Add the draw function calls for each mesh object in the heiracy
             if len(mesh_objects) > 1:
+                c_file.write("       // Draw the additional polygons\n")
                 for obj in mesh_objects:
                     if obj.parent is None:
                         continue
@@ -480,11 +482,13 @@ class TextureFileWriter(BaseExporter):
                     texture_data.append("   %s," % hex(color))
                 elif (x // 4) % 8 == 7:
                     texture_data.append("%s,\n" % hex(color))
+                else:
+                    texture_data.append("%s," % hex(color))
 
             # Ensure that the palette size does not exceeds 256 colors (this needs improvment)
             if len(color_palette) > 256:
                 color_palette = set(list(color_palette)[:256])
-                
+
             # Add the texture definition to the texture table
             tex_table.append("   TEXDEF(%3d, %3d, %9d),\n" % (
                 sprite_image.size[0],
