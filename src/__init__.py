@@ -441,31 +441,31 @@ class TextureFileWriter(BaseExporter):
 
         # Enter Edit mode to modify the UV map
         bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.select_all(action='SELECT')  # Select all faces in the mesh
-        bpy.ops.uv.reset()  # Reset the UV map to a default state
-        bpy.ops.mesh.select_all(action='DESELECT')  # Deselect all faces in the mesh
-        bpy.ops.object.mode_set(mode='OBJECT')  # Return to Object mode
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.uv.reset()
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bpy.ops.object.mode_set(mode='OBJECT')
 
         # Add the temporary material to the mesh object
         obj.data.materials.append(mat)
 
         # Configure the material settings
-        mat.diffuse_color = (1, 1, 1)  # Set the diffuse color to white
-        mat.diffuse_intensity = 1.0  # Set the diffuse intensity to maximum
-        mat.use_shadeless = True  # Disable shading for the material
+        mat.diffuse_color = (1, 1, 1)                                   # Set the diffuse color to white
+        mat.diffuse_intensity = 1.0                                     # Set the diffuse intensity to maximum
+        mat.use_shadeless = True                                        # Disable shading for the material
 
         # Ensure the texture slot is initialized and configure it
         if mat.texture_slots[0] is None:
-            mat.texture_slots.add()  # Add a texture slot if none exists
-        mat.texture_slots[0].texture = sprite_tex  # Assign the sprite texture to the first texture slot
-        mat.texture_slots[0].texture_coords = 'UV'  # Use UV coordinates for the texture
-        mat.texture_slots[0].uv_layer = obj.data.uv_textures[0].name  # Set the UV layer for the texture
+            mat.texture_slots.add()                                     # Add a texture slot if none exists
+        mat.texture_slots[0].texture = sprite_tex                       # Assign the sprite texture to the first texture slot
+        mat.texture_slots[0].texture_coords = 'UV'                      # Use UV coordinates for the texture
+        mat.texture_slots[0].uv_layer = obj.data.uv_textures[0].name    # Set the UV layer for the texture
 
         # Configure the texture settings
-        sprite_tex.filter_type = "BOX"  # Set the texture filter type to BOX
-        sprite_tex.filter_size = 0.1  # Set the texture filter size
-        sprite_tex.use_interpolation = False  # Disable interpolation for the texture
-        sprite_tex.use_mipmap = False  # Disable mipmapping for the texture
+        sprite_tex.filter_type = "BOX"                                  # Set the texture filter type to BOX
+        sprite_tex.filter_size = 0.1                                    # Set the texture filter size
+        sprite_tex.use_interpolation = False                            # Disable interpolation for the texture
+        sprite_tex.use_mipmap = False                                   # Disable mipmapping for the texture
 
         return sprite_uv  # Return the newly created UV texture layer
 
